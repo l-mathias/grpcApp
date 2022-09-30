@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package chat;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package=".;proto";
+
+service Game {
+  rpc Login(LoginRequest) returns (LoginResponse) {}
+  rpc Stream(stream StreamRequest) returns (stream StreamResponse) {}
+}
+
+message LoginRequest {
+  string id = 1;
+  string name = 2;
+  string password = 3;
+}
+
+message LoginResponse {
+  string token = 1;
+  repeated Player players = 2;
+}
+
+message StreamRequest {
+    Message request_message = 1;
+}
+
+message StreamResponse {
+  google.protobuf.Timestamp timestamp = 1;
+  oneof event {
+    AddPlayer addPlayer = 2;
+    UpdatePlayer updatePlayer = 3;
+    RemovePlayer removePlayer = 4;
+    RoundOver roundOver = 5;
+    RoundStart roundStart = 6;
+    Message  response_message = 7;
+  }
+}
+
+message Message {
+  string from = 1;
+  string to = 2;
+  string message = 3;
+}
+
+message Player {
+  string id = 1;
+  string name = 2;
+}
+
+message AddPlayer {
+  Player player = 1;
+}
+
+message UpdatePlayer {
+  Player player = 1;
+}
+
+message RemovePlayer {
+  string id = 1;
+}
+
+message RoundOver {
+  string roundWinnerId = 1;
+  google.protobuf.Timestamp newRoundAt = 2;
+}
+
+message RoundStart {
+  repeated Player players = 1;
+}
