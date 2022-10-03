@@ -276,8 +276,7 @@ func (s *GameServer) handleRemovePlayerChange(change common.RemovePlayerChange) 
 
 func (s *GameServer) watchChanges() {
 	go func() {
-		for {
-			change := <-s.game.ChangeChannel
+		for change := range s.game.ChangeChannel {
 			switch change.(type) {
 			case common.AddPlayerChange:
 				log.Printf("Received AddPlayerChange\n")
@@ -368,10 +367,11 @@ func (s *GameServer) Stream(srv proto.Game_StreamServer) error {
 }
 
 func (s *GameServer) invertActive() {
+	s.mu.Lock()
 	for _, c := range s.clients {
 		c.active = !c.active
 	}
-
+	s.mu.Unlock()
 }
 
 func (s *GameServer) handleMessageRequest(req *proto.StreamRequest, currentClient *client) {
@@ -387,6 +387,7 @@ func (s *GameServer) handleMessageRequest(req *proto.StreamRequest, currentClien
 				},
 			},
 		}
+		log.Printf("before broadcast\n")
 		s.broadcast(&resp)
 		if len(s.clients) == 2 {
 			s.invertActive()

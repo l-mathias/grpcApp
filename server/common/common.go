@@ -51,8 +51,9 @@ type MessageAction struct {
 
 type MessageChange struct {
 	Change
-	Player  Player
+	ID      uuid.UUID
 	Message Message
+	Created time.Time
 }
 
 type Player struct {
@@ -61,6 +62,7 @@ type Player struct {
 }
 
 type Game struct {
+	// remove pointer for heap usage
 	Players         map[uuid.UUID]*Player
 	Mu              sync.RWMutex
 	ChangeChannel   chan Change
@@ -133,9 +135,7 @@ func (game *Game) RemovePlayer(id uuid.UUID) {
 }
 
 func (message MessageAction) Perform(game *Game) {
-	player := game.GetPlayer(message.ID)
 	change := MessageChange{
-		Player:  *player,
 		Message: message.Message,
 	}
 	game.sendChange(change)

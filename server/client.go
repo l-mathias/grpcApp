@@ -88,18 +88,20 @@ func (c *GameClient) handleMessageChange(change common.MessageChange) {
 
 	req := proto.StreamRequest{
 		RequestMessage: &proto.Message{
-			From:    change.Player.Name,
+			From:    change.Message.From,
 			Message: change.Message.Msg,
 		},
 	}
-	c.Stream.Send(&req)
+	err := c.Stream.Send(&req)
+	if err != nil {
+		log.Printf("Error sending : %v", err)
+	}
 }
 
 func (c *GameClient) Start() {
 	// Handle local game engine changes.
 	go func() {
-		for {
-			change := <-c.Game.ChangeChannel
+		for change := range c.Game.ChangeChannel {
 			switch change.(type) {
 			case common.MessageChange:
 				c.Game.LogDebug(fmt.Sprintf("Received MessageChange\n"))
@@ -139,7 +141,7 @@ func (c *GameClient) Start() {
 		if sc.Scan() {
 			c.Game.DisplayGame()
 
-			c.Game.ActionChannel <- common.MessageAction{
+			c.Game.ChangeChannel <- common.MessageChange{
 				ID: c.CurrentPlayer,
 				Message: common.Message{
 					From: c.Game.GetPlayer(c.CurrentPlayer).Name,
@@ -148,7 +150,7 @@ func (c *GameClient) Start() {
 				Created: time.Now(),
 			}
 		} else {
-			log.Printf("input scanner failure: %v", sc.Err())
+			log.Fatalf("input scanner failure: %v", sc.Err())
 			return
 		}
 	}
@@ -173,7 +175,6 @@ func (c *GameClient) handleClientMessageResponse(resp *proto.StreamResponse) {
 }
 
 func main() {
-
 	game := common.NewGame()
 	game.IsAuthoritative = false
 	game.Start()
