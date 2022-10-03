@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"grpcChatServer/proto"
-	"grpcChatServer/server/common"
+	"grpcApp/proto"
+	"grpcApp/server/common"
 	"log"
 	"os"
 	"time"
@@ -75,7 +75,7 @@ func (c *GameClient) Login(grpcClient proto.GameClient, playerID uuid.UUID, play
 
 	c.CurrentPlayer = playerID
 	c.Stream = stream
-	log.Printf("New client added %v\n", c.CurrentPlayer)
+	c.Game.LogDebug(fmt.Sprintf("New client added %v\n", c.CurrentPlayer))
 
 	return nil
 }

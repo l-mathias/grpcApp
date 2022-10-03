@@ -2,7 +2,7 @@ package proto
 
 import (
 	"github.com/google/uuid"
-	"grpcChatServer/server/common"
+	"grpcApp/server/common"
 	"log"
 )
 

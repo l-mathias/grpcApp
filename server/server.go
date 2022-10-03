@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"grpcChatServer/proto"
-	"grpcChatServer/server/common"
+	"grpcApp/proto"
+	"grpcApp/server/common"
 	"log"
 	"net"
 	"regexp"
@@ -48,7 +48,26 @@ func NewGameServer(game *common.Game, password string) *GameServer {
 	}
 	server.watchChanges()
 	server.watchTimeout()
+	go server.watchPlay()
 	return server
+}
+
+func (s *GameServer) watchPlay() {
+	for {
+		if len(s.clients) == 2 && s.game.WaitForRound {
+			s.game.StartNewRound()
+
+			resp := proto.StreamResponse{
+				Event: &proto.StreamResponse_ResponseMessage{
+					ResponseMessage: &proto.Message{
+						From:    "Server",
+						Message: "We have 2 players... Let's begin !",
+					},
+				},
+			}
+			s.broadcast(&resp)
+		}
+	}
 }
 
 func (s *GameServer) watchTimeout() {
@@ -311,6 +330,10 @@ func (s *GameServer) Stream(srv proto.Game_StreamServer) error {
 	}
 	currentClient.streamServer = srv
 
+	if len(s.clients) == 2 {
+		s.send("Server", currentClient.id.String(), "We have 2 players... Let's begin !")
+	}
+
 	// Wait for stream requests.
 	go func() {
 		for {
@@ -328,7 +351,6 @@ func (s *GameServer) Stream(srv proto.Game_StreamServer) error {
 		}
 	}()
 
-	s.send("Server", currentClient.id.String(), "Welcome aboard")
 	// Wait for stream to be done.
 	var doneError error
 	select {

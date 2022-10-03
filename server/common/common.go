@@ -80,7 +80,7 @@ func NewGame() *Game {
 		lastAction:      make(map[string]time.Time),
 		ChangeChannel:   make(chan Change, 1),
 		IsAuthoritative: true,
-		WaitForRound:    false,
+		WaitForRound:    true,
 		Score:           make(map[uuid.UUID]int),
 	}
 	return &game
@@ -162,12 +162,12 @@ func (game *Game) queueNewRound(roundWinner uuid.UUID) {
 	go func() {
 		time.Sleep(newRoundWaitTime)
 		game.Mu.Lock()
-		game.startNewRound()
+		game.StartNewRound()
 		game.Mu.Unlock()
 	}()
 }
 
-func (game *Game) startNewRound() {
+func (game *Game) StartNewRound() {
 	game.WaitForRound = false
 	game.Score = map[uuid.UUID]int{}
 	game.sendChange(RoundStartChange{})
