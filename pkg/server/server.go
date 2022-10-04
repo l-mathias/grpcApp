@@ -1,18 +1,15 @@
-package main
+package server
 
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/uuid"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"grpcApp/pkg/core"
 	"grpcApp/proto"
-	"grpcApp/server/common"
 	"log"
-	"net"
 	"regexp"
 	"sync"
 	"time"
@@ -34,13 +31,13 @@ type client struct {
 
 type GameServer struct {
 	proto.UnimplementedGameServer
-	game     *common.Game
+	game     *core.Game
 	clients  map[uuid.UUID]*client
 	mu       sync.RWMutex
 	password string
 }
 
-func NewGameServer(game *common.Game, password string) *GameServer {
+func NewGameServer(game *core.Game, password string) *GameServer {
 	server := &GameServer{
 		game:     game,
 		clients:  make(map[uuid.UUID]*client),
@@ -48,26 +45,30 @@ func NewGameServer(game *common.Game, password string) *GameServer {
 	}
 	server.watchChanges()
 	server.watchTimeout()
-	go server.watchPlay()
+	server.watchPlay()
 	return server
 }
 
 func (s *GameServer) watchPlay() {
-	for {
-		if len(s.clients) == 2 && s.game.WaitForRound {
-			s.game.StartNewRound()
+	go func() {
+		for {
+			if len(s.clients) == 2 && s.game.WaitForRound {
+				log.Printf("s.client len : %v - waitForRound : %v", len(s.clients), s.game.WaitForRound)
+				s.game.StartNewRound()
 
-			resp := proto.StreamResponse{
-				Event: &proto.StreamResponse_ResponseMessage{
-					ResponseMessage: &proto.Message{
-						From:    "Server",
-						Message: "We have 2 players... Let's begin !",
+				resp := proto.StreamResponse{
+					Event: &proto.StreamResponse_ResponseMessage{
+						ResponseMessage: &proto.Message{
+							From:    "Server",
+							Message: "We have 2 players... Let's begin !",
+						},
 					},
-				},
+				}
+				s.broadcast(&resp)
+				s.invertActive()
 			}
-			s.broadcast(&resp)
 		}
-	}
+	}()
 }
 
 func (s *GameServer) watchTimeout() {
@@ -87,7 +88,7 @@ func (s *GameServer) watchTimeout() {
 
 func (s *GameServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if len(s.clients) >= maxClients {
-		return nil, errors.New("The server is full")
+		return nil, errors.New("The pkg is full")
 	}
 
 	playerID, err := uuid.Parse(req.Id)
@@ -101,13 +102,9 @@ func (s *GameServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto
 	}
 
 	// Check if player already exists.
-	s.game.Mu.RLock()
-
 	if s.game.PlayerExists(playerID) {
 		return nil, errors.New("duplicate player ID provided")
 	}
-
-	s.game.Mu.RUnlock()
 
 	re := regexp.MustCompile("^[a-zA-Z0-9]+$")
 	if !re.MatchString(req.Name) {
@@ -115,27 +112,25 @@ func (s *GameServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto
 	}
 
 	// Add the player.
-	player := &common.Player{
+	player := &core.Player{
 		Name: req.Name,
 		UUID: playerID,
 	}
 
-	s.game.Mu.Lock()
 	s.game.AddPlayer(player)
-	s.game.Mu.Unlock()
 
 	s.game.LogDebug(fmt.Sprintf("Player added : \nUUID: %v\nName: %v\n", player.UUID, player.Name))
 
 	// Build a slice of current entities.
-	s.game.Mu.RLock()
+	s.game.Mu.Lock()
 	players := make([]*proto.Player, 0)
 	for _, player := range s.game.Players {
-		protoPlayer := proto.GetProtoPlayer(player)
+		protoPlayer := proto.GetProtoPlayer(&player)
 		if protoPlayer != nil {
 			players = append(players, protoPlayer)
 		}
 	}
-	s.game.Mu.RUnlock()
+	s.game.Mu.Unlock()
 
 	// Inform all other clients of the new player.
 	resp := proto.StreamResponse{
@@ -175,7 +170,6 @@ func (s *GameServer) displayClients() {
 }
 
 func (s *GameServer) send(from, to, msg string) {
-
 	specMsg := proto.StreamResponse{
 		Event: &proto.StreamResponse_ResponseMessage{
 			ResponseMessage: &proto.Message{
@@ -217,7 +211,7 @@ func (s *GameServer) broadcast(resp *proto.StreamResponse) {
 	s.mu.Unlock()
 }
 
-func (s *GameServer) handleRoundOverChange(change common.RoundOverChange) {
+func (s *GameServer) handleRoundOverChange(change core.RoundOverChange) {
 	s.game.Mu.RLock()
 	defer s.game.Mu.RUnlock()
 	timestamp, err := ptypes.TimestampProto(s.game.NewRoundAt)
@@ -235,13 +229,13 @@ func (s *GameServer) handleRoundOverChange(change common.RoundOverChange) {
 	s.broadcast(&resp)
 }
 
-func (s *GameServer) handleRoundStartChange(change common.RoundStartChange) {
+func (s *GameServer) handleRoundStartChange(change core.RoundStartChange) {
 	players := []*proto.Player{}
-	s.game.Mu.RLock()
+	s.game.Mu.Lock()
 	for _, player := range s.game.Players {
-		players = append(players, proto.GetProtoPlayer(player))
+		players = append(players, proto.GetProtoPlayer(&player))
 	}
-	s.game.Mu.RUnlock()
+	s.game.Mu.Unlock()
 	resp := proto.StreamResponse{
 		Event: &proto.StreamResponse_RoundStart{
 			RoundStart: &proto.RoundStart{
@@ -252,7 +246,7 @@ func (s *GameServer) handleRoundStartChange(change common.RoundStartChange) {
 	s.broadcast(&resp)
 }
 
-func (s *GameServer) handleAddPlayerChange(change common.AddPlayerChange) {
+func (s *GameServer) handleAddPlayerChange(change core.AddPlayerChange) {
 	resp := proto.StreamResponse{
 		Event: &proto.StreamResponse_AddPlayer{
 			AddPlayer: &proto.AddPlayer{
@@ -263,7 +257,7 @@ func (s *GameServer) handleAddPlayerChange(change common.AddPlayerChange) {
 	s.broadcast(&resp)
 }
 
-func (s *GameServer) handleRemovePlayerChange(change common.RemovePlayerChange) {
+func (s *GameServer) handleRemovePlayerChange(change core.RemovePlayerChange) {
 	resp := proto.StreamResponse{
 		Event: &proto.StreamResponse_RemovePlayer{
 			RemovePlayer: &proto.RemovePlayer{
@@ -278,21 +272,21 @@ func (s *GameServer) watchChanges() {
 	go func() {
 		for change := range s.game.ChangeChannel {
 			switch change.(type) {
-			case common.AddPlayerChange:
+			case core.AddPlayerChange:
 				log.Printf("Received AddPlayerChange\n")
-				change := change.(common.AddPlayerChange)
+				change := change.(core.AddPlayerChange)
 				s.handleAddPlayerChange(change)
-			case common.RemovePlayerChange:
+			case core.RemovePlayerChange:
 				log.Printf("Received RemovePlayerChange\n")
-				change := change.(common.RemovePlayerChange)
+				change := change.(core.RemovePlayerChange)
 				s.handleRemovePlayerChange(change)
-			case common.RoundOverChange:
+			case core.RoundOverChange:
 				log.Printf("Received RoundOverChange\n")
-				change := change.(common.RoundOverChange)
+				change := change.(core.RoundOverChange)
 				s.handleRoundOverChange(change)
-			case common.RoundStartChange:
+			case core.RoundStartChange:
 				log.Printf("Received RoundStartChange\n")
-				change := change.(common.RoundStartChange)
+				change := change.(core.RoundStartChange)
 				s.handleRoundStartChange(change)
 			}
 		}
@@ -329,10 +323,6 @@ func (s *GameServer) Stream(srv proto.Game_StreamServer) error {
 	}
 	currentClient.streamServer = srv
 
-	if len(s.clients) == 2 {
-		s.send("Server", currentClient.id.String(), "We have 2 players... Let's begin !")
-	}
-
 	// Wait for stream requests.
 	go func() {
 		for {
@@ -363,15 +353,29 @@ func (s *GameServer) Stream(srv proto.Game_StreamServer) error {
 	s.removeClient(currentClient.id)
 	s.removePlayer(currentClient.playerID)
 
+	s.mu.Lock()
+	for _, c := range s.clients {
+		if c.playerID != currentClient.playerID {
+			log.Printf("setting %v active", s.game.Players[c.playerID].Name)
+			c.active = true
+		}
+	}
+	s.mu.Unlock()
+
+	// this client is not the winner in case of disconnect, change this
+	s.game.QueueNewRound(currentClient.playerID)
 	return doneError
 }
 
 func (s *GameServer) invertActive() {
-	s.mu.Lock()
 	for _, c := range s.clients {
 		c.active = !c.active
+		if c.active {
+			s.send("Server", c.id.String(), "This is your turn.")
+		} else {
+			s.send("Server", c.id.String(), "Waiting for opponent...")
+		}
 	}
-	s.mu.Unlock()
 }
 
 func (s *GameServer) handleMessageRequest(req *proto.StreamRequest, currentClient *client) {
@@ -387,7 +391,6 @@ func (s *GameServer) handleMessageRequest(req *proto.StreamRequest, currentClien
 				},
 			},
 		}
-		log.Printf("before broadcast\n")
 		s.broadcast(&resp)
 		if len(s.clients) == 2 {
 			s.invertActive()
@@ -404,9 +407,7 @@ func (s *GameServer) removeClient(id uuid.UUID) {
 }
 
 func (s *GameServer) removePlayer(playerID uuid.UUID) {
-	s.game.Mu.Lock()
 	s.game.RemovePlayer(playerID)
-	s.game.Mu.Unlock()
 
 	resp := proto.StreamResponse{
 		Event: &proto.StreamResponse_RemovePlayer{
@@ -416,28 +417,4 @@ func (s *GameServer) removePlayer(playerID uuid.UUID) {
 		},
 	}
 	s.broadcast(&resp)
-}
-
-func main() {
-	port := flag.Int("port", 8080, "The port to listen on.")
-	password := flag.String("password", "", "The server password.")
-	flag.Parse()
-
-	log.Printf("listening on port %d\n", *port)
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	game := common.NewGame()
-
-	game.Start()
-
-	s := grpc.NewServer()
-	server := NewGameServer(game, *password)
-	proto.RegisterGameServer(s, server)
-
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
 }

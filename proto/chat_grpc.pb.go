@@ -74,7 +74,7 @@ func (x *gameStreamClient) Recv() (*StreamResponse, error) {
 	return m, nil
 }
 
-// GameServer is the server API for Game service.
+// GameServer is the pkg API for Game service.
 // All implementations must embed UnimplementedGameServer
 // for forward compatibility
 type GameServer interface {

@@ -1,4 +1,4 @@
-package common
+package core
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	debug            bool = true
+	debug            bool = false
 	roundOverScore        = 10
 	newRoundWaitTime      = 10 * time.Second
 )
@@ -62,8 +62,7 @@ type Player struct {
 }
 
 type Game struct {
-	// remove pointer for heap usage
-	Players         map[uuid.UUID]*Player
+	Players         map[uuid.UUID]Player
 	Mu              sync.RWMutex
 	ChangeChannel   chan Change
 	ActionChannel   chan Action
@@ -77,7 +76,7 @@ type Game struct {
 
 func NewGame() *Game {
 	game := Game{
-		Players:         make(map[uuid.UUID]*Player),
+		Players:         make(map[uuid.UUID]Player),
 		ActionChannel:   make(chan Action, 1),
 		lastAction:      make(map[string]time.Time),
 		ChangeChannel:   make(chan Change, 1),
@@ -105,9 +104,9 @@ func (game *Game) watchActions() {
 		if game.WaitForRound {
 			continue
 		}
-		game.Mu.Lock()
+		//game.Mu.Lock()
 		action.Perform(game)
-		game.Mu.Unlock()
+		//game.Mu.Unlock()
 	}
 }
 
@@ -115,28 +114,36 @@ func (p *Player) ID() uuid.UUID {
 	return p.UUID
 }
 
-func (game *Game) GetPlayer(id uuid.UUID) *Player {
+func (game *Game) GetPlayer(id uuid.UUID) Player {
 	return game.Players[id]
 }
 
 func (game *Game) PlayerExists(id uuid.UUID) bool {
+	game.Mu.Lock()
 	if _, ok := game.Players[id]; ok {
 		return true
 	}
+	game.Mu.Unlock()
 	return false
 }
 
 func (game *Game) AddPlayer(player *Player) {
-	game.Players[player.ID()] = player
+	//game.Mu.Lock()
+	game.Players[player.ID()] = *player
+	//game.Mu.Unlock()
 }
 
 func (game *Game) RemovePlayer(id uuid.UUID) {
+	//game.Mu.Lock()
 	delete(game.Players, id)
+	//game.Mu.Unlock()
 }
 
 func (message MessageAction) Perform(game *Game) {
 	change := MessageChange{
+		ID:      message.ID,
 		Message: message.Message,
+		Created: message.Created,
 	}
 	game.sendChange(change)
 }
@@ -154,17 +161,17 @@ func (game *Game) LogDebug(msg string) {
 	}
 }
 
-func (game *Game) queueNewRound(roundWinner uuid.UUID) {
+func (game *Game) QueueNewRound(roundWinner uuid.UUID) {
 	game.WaitForRound = true
 	game.NewRoundAt = time.Now().Add(newRoundWaitTime)
 	game.RoundWinner = roundWinner
 	game.sendChange(RoundOverChange{})
-	go func() {
-		time.Sleep(newRoundWaitTime)
-		game.Mu.Lock()
-		game.StartNewRound()
-		game.Mu.Unlock()
-	}()
+	//go func() {
+	//	time.Sleep(newRoundWaitTime)
+	//	//game.Mu.Lock()
+	//	game.StartNewRound()
+	//	//game.Mu.Unlock()
+	//}()
 }
 
 func (game *Game) StartNewRound() {
